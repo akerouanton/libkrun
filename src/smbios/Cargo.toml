@@ -4,4 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-vm-memory = { version = ">=0.13", features = ["backend-mmap"] }
+vm-memory = { path = "/Users/aker/projects/github.com/akerouanton/vm-memory", features = ["backend-mmap"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+vm-memory = { path = "/Users/aker/projects/github.com/akerouanton/vm-memory", features = ["hvf"] }

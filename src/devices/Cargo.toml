@@ -28,7 +28,7 @@ pw = { package = "pipewire", version = "0.8.0", optional = true }
 rand = "0.8.5"
 thiserror = { version = "1.0", optional = true }
 virtio-bindings = "0.2.0"
-vm-memory = { version = ">=0.13", features = ["backend-mmap"] }
+vm-memory = { path = "/Users/aker/projects/github.com/akerouanton/vm-memory", features = ["backend-mmap"] }
 zerocopy = { version = "0.6.3", optional = true }
 zerocopy-derive = { version = "0.6.3", optional = true }
 krun_display = { path = "../krun_display", optional = true, features = ["bindgen_clang_runtime"] }
@@ -42,6 +42,7 @@ imago = { version = "0.1.4", features = ["sync-wrappers", "vm-memory"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 hvf = { path = "../hvf" }
 lru = ">=0.9"
+vm-memory = { path = "/Users/aker/projects/github.com/akerouanton/vm-memory", features = ["hvf"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rutabaga_gfx = { path = "../rutabaga_gfx", features = ["x"], optional = true }
