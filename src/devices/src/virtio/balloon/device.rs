@@ -119,17 +119,35 @@ impl Balloon {
             let index = head.index;
             for desc in head.into_iter() {
                 let host_addr = mem.get_host_address(desc.addr).unwrap();
-                debug!(
-                    "balloon: should release guest_addr={:?} host_addr={:p} len={}",
-                    desc.addr, host_addr, desc.len
+
+                // Debug: Check if this memory contains non-zero data
+                let first_64_bytes = unsafe {
+                    std::slice::from_raw_parts(host_addr as *const u8, std::cmp::min(64, desc.len as usize))
+                };
+                let is_likely_zero = first_64_bytes.iter().all(|&b| b == 0);
+                let first_8_bytes: Vec<u8> = first_64_bytes.iter().take(8).copied().collect();
+
+                info!(
+                    "balloon: releasing guest_addr={:#x} host_addr={:p} len={} is_zero={} first_8_bytes={:02x?}",
+                    desc.addr.raw_value(), host_addr, desc.len, is_likely_zero, first_8_bytes
                 );
-                unsafe {
+
+                /* unsafe {
                     libc::madvise(
                         host_addr as *mut libc::c_void,
                         desc.len.try_into().unwrap(),
                         libc::MADV_DONTNEED,
                     )
-                };
+                }; */
+
+                // Safety check: Only remap if the memory appears to be actually free
+                if !is_likely_zero {
+                    error!(
+                        "balloon: REFUSING to remap non-zero memory at guest_addr={:#x} - this would cause SIGILL! first_8_bytes={:02x?}",
+                        desc.addr.raw_value(), first_8_bytes
+                    );
+                    continue; // Skip this region
+                }
 
                 let (reply_sender, reply_receiver) = unbounded();
                 self.map_sender
@@ -143,6 +161,8 @@ impl Balloon {
                 if !reply_receiver.recv().unwrap() {
                     error!("failed to remap region");
                 }
+
+                info!("balloon: remapped region");
             }
 
             have_used = true;
