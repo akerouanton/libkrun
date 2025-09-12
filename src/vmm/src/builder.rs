@@ -870,7 +870,13 @@ pub fn build_microvm(
     };
 
     #[cfg(not(feature = "tee"))]
-    attach_balloon_device(&mut vmm, event_manager, intc.clone())?;
+    attach_balloon_device(
+        &mut vmm,
+        event_manager,
+        intc.clone(),
+        #[cfg(target_os = "macos")]
+        _sender.clone(),
+    )?;
     #[cfg(not(feature = "tee"))]
     attach_rng_device(&mut vmm, event_manager, intc.clone())?;
     attach_console_devices(
@@ -1898,10 +1904,13 @@ fn attach_balloon_device(
     vmm: &mut Vmm,
     event_manager: &mut EventManager,
     intc: IrqChip,
+    #[cfg(target_os = "macos")] map_sender: Sender<WorkerMessage>,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
-    let balloon = Arc::new(Mutex::new(devices::virtio::Balloon::new().unwrap()));
+    let balloon = Arc::new(Mutex::new(devices::virtio::Balloon::new(
+        #[cfg(target_os = "macos")] map_sender,
+    ).unwrap()));
 
     event_manager
         .add_subscriber(balloon.clone())

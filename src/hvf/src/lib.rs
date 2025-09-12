@@ -104,6 +104,7 @@ const EC_AA64_BKPT: u64 = 0x3c;
 pub enum Error {
     EnableEL2,
     FindSymbol(libloading::Error),
+    MemoryAllocate,
     MemoryMap,
     MemoryUnmap,
     NestedCheck,
@@ -127,6 +128,7 @@ impl Display for Error {
         match self {
             EnableEL2 => write!(f, "Error enabling EL2 mode in HVF"),
             FindSymbol(ref err) => write!(f, "Couldn't find symbol in HVF library: {err}"),
+            MemoryAllocate => write!(f, "Error allocating memory in HVF"),
             MemoryMap => write!(f, "Error registering memory region in HVF"),
             MemoryUnmap => write!(f, "Error unregistering memory region in HVF"),
             NestedCheck => write!(
@@ -261,6 +263,16 @@ impl HvfVm {
             Err(Error::VmCreate)
         } else {
             Ok(Self {})
+        }
+    }
+
+    pub fn allocate_memory(&self, size: u64) -> Result<u64, Error> {
+        let mut host_addr = std::ptr::null_mut();
+        let ret = unsafe { hv_vm_allocate(&mut host_addr, size.try_into().unwrap(), HV_ALLOCATE_DEFAULT.into()) };
+        if ret != HV_SUCCESS {
+            Err(Error::MemoryAllocate)
+        } else {
+            Ok(host_addr as u64)
         }
     }
 

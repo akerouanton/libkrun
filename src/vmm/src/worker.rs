@@ -44,6 +44,8 @@ impl super::Vmm {
             WorkerMessage::GpuAddMapping(s, h, g, l) => self.add_mapping(s, h, g, l),
             #[cfg(target_os = "macos")]
             WorkerMessage::GpuRemoveMapping(s, g, l) => self.remove_mapping(s, g, l),
+            #[cfg(target_os = "macos")]
+            WorkerMessage::BalloonRemapRegion(s, h, g, l) => self.remap_memory(s, h, g, l),
             #[cfg(target_arch = "x86_64")]
             WorkerMessage::GsiRoute(sender, entries) => {
                 let mut routing = kvm_bindings::KvmIrqRouting::new(entries.len()).unwrap();

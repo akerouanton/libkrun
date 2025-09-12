@@ -399,6 +399,18 @@ impl Vmm {
     pub fn remove_mapping(&self, reply_sender: Sender<bool>, guest_addr: u64, len: u64) {
         self.vm.remove_mapping(reply_sender, guest_addr, len);
     }
+
+    #[cfg(target_os = "macos")]
+    pub fn remap_memory(
+        &self,
+        reply_sender: Sender<bool>,
+        host_addr: u64,
+        guest_addr: u64,
+        len: u64,
+    ) {
+        self.vm
+            .remap_memory(reply_sender, host_addr, guest_addr, len);
+    }
 }
 
 impl Subscriber for Vmm {

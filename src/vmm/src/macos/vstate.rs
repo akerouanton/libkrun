@@ -29,6 +29,8 @@ use vm_memory::{
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
 pub enum Error {
+    /// Error allocating memory in HVF.
+    MemoryAllocate(hvf::Error),
     /// Invalid guest memory configuration.
     GuestMemoryMmap(GuestMemoryError),
     /// The number of configured slots is bigger than the maximum reported by KVM.
@@ -64,6 +66,7 @@ impl Display for Error {
         use self::Error::*;
 
         match self {
+            MemoryAllocate(e) => write!(f, "Error allocating memory in HVF: {:?}", e),
             GuestMemoryMmap(e) => write!(f, "Guest memory error: {e:?}"),
             VcpuCountNotInitialized => write!(f, "vCPU count is not initialized"),
             VmSetup(e) => write!(f, "Cannot configure the microvm: {e:?}"),
@@ -157,6 +160,38 @@ impl Vm {
             reply_sender.send(false).unwrap();
         } else {
             reply_sender.send(true).unwrap();
+        }
+    }
+
+    pub fn remap_memory(
+        &self,
+        reply_sender: Sender<bool>,
+        host_addr: u64,
+        guest_addr: u64,
+        len: u64,
+    ) {
+        info!("remap_memory: host_addr={:#x}, guest_addr={:#x}, len={}", host_addr, guest_addr, len);
+        if let Err(e) = self.hvf_vm.unmap_memory(guest_addr, len) {
+            debug!("Error removing memory map: {:?}", e);
+        }
+
+        match self.hvf_vm.allocate_memory(len) {
+            Ok(host_addr) => {
+                info!(
+                    "remap_memory: allocated memory at host_addr={:#x}, remapping to guest_addr={:#x}",
+                    host_addr, guest_addr
+                );
+                if let Err(e) = self.hvf_vm.map_memory(host_addr, guest_addr, len) {
+                    error!("Error mapping memory: {:?}", e);
+                    reply_sender.send(false).unwrap();
+                } else {
+                    reply_sender.send(true).unwrap();
+                }
+            }
+            Err(e) => {
+                error!("Error allocating memory: {:?}", e);
+                reply_sender.send(false).unwrap();
+            }
         }
     }
 }

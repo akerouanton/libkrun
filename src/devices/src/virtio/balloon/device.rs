@@ -2,8 +2,12 @@ use std::cmp;
 use std::convert::TryInto;
 use std::io::Write;
 
+#[cfg(target_os = "macos")]
+use crossbeam_channel::{Sender, unbounded};
 use utils::eventfd::EventFd;
-use vm_memory::{ByteValued, GuestMemory, GuestMemoryMmap};
+#[cfg(target_os = "macos")]
+use utils::worker_message::WorkerMessage;
+use vm_memory::{Address, ByteValued, GuestMemory, GuestMemoryMmap};
 
 use super::super::{
     ActivateError, ActivateResult, BalloonError, DeviceState, Queue as VirtQueue, VirtioDevice,
@@ -52,10 +56,15 @@ pub struct Balloon {
     pub(crate) activate_evt: EventFd,
     pub(crate) device_state: DeviceState,
     config: VirtioBalloonConfig,
+    #[cfg(target_os = "macos")]
+    map_sender: Sender<WorkerMessage>,
 }
 
 impl Balloon {
-    pub(crate) fn with_queues(queues: Vec<VirtQueue>) -> super::Result<Balloon> {
+    pub(crate) fn with_queues(
+        queues: Vec<VirtQueue>,
+        #[cfg(target_os = "macos")] map_sender: Sender<WorkerMessage>,
+    ) -> super::Result<Balloon> {
         let mut queue_events = Vec::new();
         for _ in 0..queues.len() {
             queue_events
@@ -73,15 +82,23 @@ impl Balloon {
                 .map_err(BalloonError::EventFd)?,
             device_state: DeviceState::Inactive,
             config,
+            #[cfg(target_os = "macos")]
+            map_sender,
         })
     }
 
-    pub fn new() -> super::Result<Balloon> {
+    pub fn new(
+        #[cfg(target_os = "macos")] map_sender: Sender<WorkerMessage>,
+    ) -> super::Result<Balloon> {
         let queues: Vec<VirtQueue> = defs::QUEUE_SIZES
             .iter()
             .map(|&max_size| VirtQueue::new(max_size))
             .collect();
-        Self::with_queues(queues)
+        Self::with_queues(
+            queues,
+            #[cfg(target_os = "macos")]
+            map_sender,
+        )
     }
 
     pub fn id(&self) -> &str {
@@ -113,6 +130,19 @@ impl Balloon {
                         libc::MADV_DONTNEED,
                     )
                 };
+
+                let (reply_sender, reply_receiver) = unbounded();
+                self.map_sender
+                    .send(WorkerMessage::BalloonRemapRegion(
+                        reply_sender,
+                        host_addr as u64,
+                        desc.addr.raw_value() as u64,
+                        desc.len.try_into().unwrap(),
+                    ))
+                    .unwrap();
+                if !reply_receiver.recv().unwrap() {
+                    error!("failed to remap region");
+                }
             }
 
             have_used = true;

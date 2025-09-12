@@ -18,5 +18,7 @@ pub enum WorkerMessage {
     GpuAddMapping(crossbeam_channel::Sender<bool>, u64, u64, u64),
     #[cfg(target_os = "macos")]
     GpuRemoveMapping(crossbeam_channel::Sender<bool>, u64, u64),
+    #[cfg(target_os = "macos")]
+    BalloonRemapRegion(crossbeam_channel::Sender<bool>, u64, u64, u64),
     ConvertMemory(crossbeam_channel::Sender<bool>, MemoryProperties),
 }
