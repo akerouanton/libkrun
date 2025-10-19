@@ -21,6 +21,15 @@ use crate::vmm_config::machine_config::CpuFeaturesTemplate;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use devices::legacy::VcpuList;
 use hvf::{HvfVcpu, HvfVm, VcpuExit, Vcpus};
+
+use mach2::kern_return::KERN_SUCCESS;
+use mach2::traps::mach_task_self;
+use mach2::vm::mach_vm_remap;
+use mach2::vm_inherit::VM_INHERIT_NONE;
+use mach2::vm_prot::vm_prot_t;
+use mach2::vm_statistics::{VM_FLAGS_FIXED, VM_FLAGS_OVERWRITE};
+use mach2::vm_types::mach_vm_address_t;
+
 use utils::eventfd::EventFd;
 use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
@@ -157,6 +166,38 @@ impl Vm {
             reply_sender.send(false).unwrap();
         } else {
             reply_sender.send(true).unwrap();
+        }
+    }
+
+    /// remap_region remaps the given memory region on top of itself. This is
+    /// used to overcome the double-counting issue — doing this operation
+    /// ensures macOS won't count pages read or written by the host process
+    /// towards it. The host process will only be charged for pages read or
+    /// written by the guest.
+    pub fn remap_region(
+        &self,
+        host_addr: u64,
+        len: u64,
+    ) {
+        let mut target_addr: mach_vm_address_t = host_addr;
+        let mut cur_prot: vm_prot_t = 0;
+        let mut max_prot: vm_prot_t = 0;
+
+        let kr = unsafe { mach_vm_remap(
+            mach_task_self(),
+            &mut target_addr,
+            len,
+            0,
+            VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE,
+            mach_task_self(),
+            host_addr,
+            0,
+            &mut cur_prot,
+            &mut max_prot,
+            VM_INHERIT_NONE,
+        ) };
+        if kr != KERN_SUCCESS {
+            error!("Error remapping region at {host_addr:#x} len {len}: {kr:?}");
         }
     }
 }

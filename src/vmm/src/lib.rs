@@ -31,6 +31,7 @@ use crate::linux::vstate;
 #[cfg(target_os = "macos")]
 mod macos;
 mod terminal;
+pub mod remapper;
 pub mod worker;
 
 #[cfg(target_os = "macos")]
@@ -64,7 +65,7 @@ use kernel::cmdline::Cmdline as KernelCmdline;
 use polly::event_manager::{self, EventManager, Subscriber};
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
-use vm_memory::GuestMemoryMmap;
+use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// Success exit code.
 pub const FC_EXIT_CODE_OK: u8 = 0;
@@ -398,6 +399,13 @@ impl Vmm {
     #[cfg(target_os = "macos")]
     pub fn remove_mapping(&self, reply_sender: Sender<bool>, guest_addr: u64, len: u64) {
         self.vm.remove_mapping(reply_sender, guest_addr, len);
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn remap_guest_mem(&self) {
+        self.guest_memory.iter().for_each(|region| {
+            self.vm.remap_region(region.as_ptr() as u64, region.len())
+        });
     }
 }
 

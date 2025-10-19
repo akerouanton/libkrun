@@ -51,6 +51,7 @@ kvm-ioctls = ">=0.21"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 hvf = { path = "../hvf" }
+mach2 = "0.5.0"
 
 [dev-dependencies]
 devices = { path = "../devices", features = ["test_utils"] }

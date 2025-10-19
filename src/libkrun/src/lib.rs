@@ -2366,6 +2366,10 @@ pub extern "C" fn krun_start_enter(ctx_id: u32) -> i32 {
     #[cfg(any(feature = "amd-sev", feature = "tdx"))]
     vmm::worker::start_worker_thread(_vmm.clone(), _receiver.clone()).unwrap();
 
+    // TODO(aker): start a worker thread that remaps memory regions to work around the double counting issue
+    #[cfg(target_os = "macos")]
+    vmm::remapper::start_remapper_thread(_vmm.clone()).unwrap();
+
     loop {
         match event_manager.run() {
             Ok(_) => {}
