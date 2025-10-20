@@ -1,8 +1,8 @@
 use std::cmp;
-use std::convert::TryInto;
 use std::io::Write;
 use std::time::Instant;
 
+use hvf::bindings::{hv_vm_map, hv_vm_unmap, HV_MEMORY_EXEC, HV_MEMORY_READ, HV_MEMORY_WRITE, HV_SUCCESS};
 use utils::eventfd::EventFd;
 use vm_memory::{Address, ByteValued, GuestAddress, GuestMemory, GuestMemoryMmap};
 
@@ -109,20 +109,41 @@ impl Balloon {
                     "balloon: should release guest_addr={:?} host_addr={:p} len={}",
                     guest_addr, host_addr, size
                 );
-                unsafe {
-                    libc::madvise(
-                        host_addr as *mut libc::c_void,
-                        size.try_into().unwrap(),
-                        libc::MADV_DONTNEED,
-                    )
-                };
+
+                if cfg!(target_os = "macos") {
+                    let hr = unsafe { hv_vm_unmap(guest_addr.0, size as usize) };
+                    if hr != HV_SUCCESS {
+                        error!("balloon: failed to unmap host pages");
+                        continue;
+                    }
+                }
+
+                unsafe { libc::madvise(
+                    host_addr as *mut libc::c_void,
+                    size.try_into().unwrap(),
+                    libc::MADV_DONTNEED,
+                ) };
+
+                if cfg!(target_os = "macos") {
+                    let hr = unsafe { hv_vm_map(
+                        host_addr as *mut core::ffi::c_void,
+                        guest_addr.0,
+                        size as usize,
+                        (HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC).into(),
+                    ) };
+                    if hr != HV_SUCCESS {
+                        error!("balloon: failed to re-map host pages");
+                    }
+                }
+
+                info!("balloon: guest pages freed guest_addr={:x} host_addr={:p} size={}", guest_addr.0, host_addr, size);
             }
 
             info!("balloon: free page reporting latency={:?}", Instant::now().duration_since(t0));
 
             have_used = true;
             if let Err(e) = self.queues[FRQ_INDEX].add_used(mem, index, 0) {
-                error!("failed to add used elements to the queue: {e:?}");
+                error!("balloon: failed to add used elements to the queue: {:?}", e);
             }
         }
 

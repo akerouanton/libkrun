@@ -183,6 +183,8 @@ impl Vm {
         let mut cur_prot: vm_prot_t = 0;
         let mut max_prot: vm_prot_t = 0;
 
+        info!("Remapping region at {host_addr:#x} len {len} to {target_addr:#x}");
+
         let kr = unsafe { mach_vm_remap(
             mach_task_self(),
             &mut target_addr,

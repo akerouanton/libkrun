@@ -41,6 +41,7 @@ imago = { version = "0.1.4", features = ["sync-wrappers", "vm-memory"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 hvf = { path = "../hvf" }
 lru = ">=0.9"
+mach2 = "0.5.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rutabaga_gfx = { path = "../rutabaga_gfx", features = ["x"], optional = true }

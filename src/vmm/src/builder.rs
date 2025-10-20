@@ -1106,6 +1106,9 @@ fn load_external_kernel(
             let data: Vec<u8> = std::fs::read(external_kernel.path.clone())
                 .map_err(StartMicrovmError::RawOpenKernel)?;
             guest_mem.write(&data, GuestAddress(0x8000_0000)).unwrap();
+            info!("load_external_kernel: loading raw kernel host_addr={:p} size={}",
+                guest_mem.get_host_address(GuestAddress(0x8000_0000)).unwrap(),
+                data.len());
             GuestAddress(0x8000_0000)
         }
         #[cfg(target_arch = "x86_64")]
@@ -1227,6 +1230,9 @@ fn load_external_kernel(
         guest_mem
             .write(&data, GuestAddress(arch_mem_info.initrd_addr))
             .unwrap();
+        info!("load_external_kernel: loading initramfs host_addr={:p} size={}",
+            guest_mem.get_host_address(GuestAddress(arch_mem_info.initrd_addr)).unwrap(),
+            data.len());
         Some(InitrdConfig {
             address: GuestAddress(arch_mem_info.initrd_addr),
             size: data.len(),
