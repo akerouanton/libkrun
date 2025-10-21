@@ -1,6 +1,7 @@
 use std::cmp;
 use std::convert::TryInto;
 use std::io::Write;
+use std::time::Instant;
 
 use utils::eventfd::EventFd;
 use vm_memory::{ByteValued, GuestMemory, GuestMemoryMmap};
@@ -99,6 +100,8 @@ impl Balloon {
         let mut have_used = false;
 
         while let Some(head) = self.queues[FRQ_INDEX].pop(mem) {
+            let t0 = Instant::now();
+
             let index = head.index;
             for desc in head.into_iter() {
                 let host_addr = mem.get_host_address(desc.addr).unwrap();
@@ -114,6 +117,8 @@ impl Balloon {
                     )
                 };
             }
+
+            info!("balloon: free page reporting latency={:?}", Instant::now().duration_since(t0));
 
             have_used = true;
             if let Err(e) = self.queues[FRQ_INDEX].add_used(mem, index, 0) {
