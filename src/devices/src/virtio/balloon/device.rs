@@ -4,13 +4,13 @@ use std::io::Write;
 use std::time::Instant;
 
 use utils::eventfd::EventFd;
-use vm_memory::{ByteValued, GuestMemory, GuestMemoryMmap};
+use vm_memory::{Address, ByteValued, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 use super::super::{
     ActivateError, ActivateResult, BalloonError, DeviceState, Queue as VirtQueue, VirtioDevice,
 };
 use super::{defs, defs::uapi};
-use crate::virtio::InterruptTransport;
+use crate::virtio::{DescriptorChain, InterruptTransport};
 
 // Inflate queue.
 pub(crate) const IFQ_INDEX: usize = 0;
@@ -103,16 +103,16 @@ impl Balloon {
             let t0 = Instant::now();
 
             let index = head.index;
-            for desc in head.into_iter() {
-                let host_addr = mem.get_host_address(desc.addr).unwrap();
+            for (guest_addr, size) in self.coalesce_regions(head).into_iter() {
+                let host_addr = mem.get_host_address(guest_addr).unwrap();
                 debug!(
                     "balloon: should release guest_addr={:?} host_addr={:p} len={}",
-                    desc.addr, host_addr, desc.len
+                    guest_addr, host_addr, size
                 );
                 unsafe {
                     libc::madvise(
                         host_addr as *mut libc::c_void,
-                        desc.len.try_into().unwrap(),
+                        size.try_into().unwrap(),
                         libc::MADV_DONTNEED,
                     )
                 };
@@ -127,6 +127,31 @@ impl Balloon {
         }
 
         have_used
+    }
+
+    fn coalesce_regions(&self, head: DescriptorChain) -> Vec<(GuestAddress, u32)> {
+        let mut regions: Vec<(GuestAddress, u32)> = Vec::new();
+        let mut coalesced = 0;
+
+        for desc in head.into_iter() {
+            let cur_end = desc.addr.checked_add(desc.len as u64).unwrap();
+
+            if let Some((prev_base, prev_len)) = regions.last_mut() {
+                if cur_end == *prev_base {
+                    *prev_base = desc.addr;
+                    *prev_len += desc.len;
+                    coalesced += 1;
+                } else {
+                    regions.push((desc.addr, desc.len))
+                }
+            } else {
+                regions.push((desc.addr, desc.len))
+            }
+        }
+
+        info!("balloon: coalesce_regions: {} regions coalesced", coalesced);
+
+        regions
     }
 }
 
