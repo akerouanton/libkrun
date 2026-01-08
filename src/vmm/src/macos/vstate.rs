@@ -99,9 +99,16 @@ pub struct Vm {
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
     pub fn new(nested_enabled: bool) -> Result<Self> {
-        let hvf_vm = HvfVm::new(nested_enabled).map_err(Error::VmSetup)?;
-
-        Ok(Vm { hvf_vm })
+         match HvfVm::new(nested_enabled).map_err(Error::VmSetup) {
+            Ok(hvf_vm) => {
+                info!("HVF VM created successfully");
+                Ok(Vm { hvf_vm })
+            }
+            Err(e) => {
+                error!("Failed to create HVF VM: {e:?}");
+                Err(Error::VmSetup(hvf::Error::VmCreate))
+            }
+        }
     }
 
     pub fn hvf_vm(&self) -> &HvfVm {

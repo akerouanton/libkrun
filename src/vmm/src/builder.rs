@@ -568,6 +568,8 @@ pub fn build_microvm(
 ) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     let payload = choose_payload(vm_resources)?;
 
+    info!("Creating guest memory");
+
     let (guest_memory, arch_memory_info, mut _shm_manager, payload_config) = create_guest_memory(
         vm_resources
             .vm_config()
@@ -577,7 +579,11 @@ pub fn build_microvm(
         &payload,
     )?;
 
+    info!("Creating vcpu config");
+
     let vcpu_config = vm_resources.vcpu_config();
+
+    info!("Creating kernel command line");
 
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
@@ -609,9 +615,13 @@ pub fn build_microvm(
         kernel_cmdline.insert_str(cmdline).unwrap();
     }
 
+    info!("Setting up vm — nested enabled: {}", vm_resources.nested_enabled);
+
     #[cfg(not(feature = "tee"))]
     #[allow(unused_mut)]
     let mut vm = setup_vm(&guest_memory, vm_resources.nested_enabled)?;
+
+    info!("VM setup succeeded");
 
     #[cfg(feature = "tee")]
     let (_kvm, vm) = {
@@ -728,6 +738,8 @@ pub fn build_microvm(
 
     let mut serial_devices = Vec::new();
 
+    info!("Setting up serial devices");
+
     // Create the legacy serial device if we're booting from a firmware
     if (cfg!(feature = "efi") || vm_resources.firmware_config.is_some())
         && !vm_resources.disable_implicit_console
@@ -766,6 +778,8 @@ pub fn build_microvm(
         serial_devices.push(setup_serial_device(event_manager, input, output)?);
     }
 
+    info!("Creating exit event fd");
+
     let exit_evt = EventFd::new(utils::eventfd::EFD_NONBLOCK)
         .map_err(Error::EventFd)
         .map_err(StartMicrovmError::Internal)?;
@@ -787,6 +801,8 @@ pub fn build_microvm(
     .map_err(Error::CreateLegacyDevice)
     .map_err(StartMicrovmError::Internal)?;
 
+    info!("Creating MMIO device manager");
+
     // Instantiate the MMIO device manager.
     // 'mmio_base' address has to be an address which is protected by the kernel
     // and is architectural specific.
@@ -795,6 +811,8 @@ pub fn build_microvm(
         &mut (arch::MMIO_MEM_START.clone()),
         (arch::IRQ_BASE, arch::IRQ_MAX),
     );
+
+    info!("Creating vcpu list");
 
     #[cfg(target_os = "macos")]
     let vcpu_list = {
@@ -890,6 +908,8 @@ pub fn build_microvm(
         )?;
     }
 
+    info!("Attaching legacy devices");
+
     #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
     {
         intc = {
@@ -964,15 +984,25 @@ pub fn build_microvm(
         pio_device_manager,
     };
 
+    info!("Setting up serial TTYs");
+
     // Set raw mode for FDs that are connected to legacy serial devices.
     for serial_tty in serial_ttys {
         setup_terminal_raw_mode(&mut vmm, Some(serial_tty), false);
     }
 
+    info!("Attaching balloon device");
+
     #[cfg(not(feature = "tee"))]
     attach_balloon_device(&mut vmm, event_manager, intc.clone())?;
+
+    info!("Attaching rng device");
+
     #[cfg(not(feature = "tee"))]
     attach_rng_device(&mut vmm, event_manager, intc.clone())?;
+
+    info!("Attaching console devices");
+
     let mut console_id = 0;
     if !vm_resources.disable_implicit_console {
         attach_console_devices(
@@ -1031,6 +1061,8 @@ pub fn build_microvm(
         attach_input_devices(&mut vmm, &vm_resources.input_backends, intc.clone())?;
     }
 
+    info!("Attaching fs devices");
+
     #[cfg(not(any(feature = "tee", feature = "nitro")))]
     attach_fs_devices(
         &mut vmm,
@@ -1043,6 +1075,9 @@ pub fn build_microvm(
         #[cfg(target_os = "macos")]
         _sender,
     )?;
+
+    info!("Attaching block devices");
+
     #[cfg(feature = "blk")]
     attach_block_devices(&mut vmm, &vm_resources.block, intc.clone())?;
     if let Some(vsock) = vm_resources.vsock.get() {
@@ -1055,12 +1090,17 @@ pub fn build_microvm(
             vmm.kernel_cmdline.insert_str("tsi_hijack")?;
         }
     }
+
+    info!("Attaching net devices");
+
     #[cfg(feature = "net")]
     attach_net_devices(&mut vmm, &vm_resources.net, intc.clone())?;
     #[cfg(feature = "snd")]
     if vm_resources.snd_device {
         attach_snd_device(&mut vmm, intc.clone())?;
     }
+
+    info!("Setting up kernel command line");
 
     if let Some(s) = &vm_resources.kernel_cmdline.epilog {
         vmm.kernel_cmdline.insert_str(s).unwrap();
@@ -1070,6 +1110,8 @@ pub fn build_microvm(
     // aarch64 the command line will be specified through the FDT.
     #[cfg(all(target_arch = "x86_64", not(feature = "tee")))]
     load_cmdline(&vmm)?;
+
+    info!("Configuring system");
 
     vmm.configure_system(
         vcpus.as_slice(),
@@ -1113,8 +1155,12 @@ pub fn build_microvm(
         println!("Starting TEE/microVM.");
     }
 
+    info!("Starting vcpus");
+
     vmm.start_vcpus(vcpus)
         .map_err(StartMicrovmError::Internal)?;
+
+    info!("Adding event manager subscriber");
 
     // Clippy thinks we don't need Arc<Mutex<...
     // but we don't want to change the event_manager interface
@@ -1123,6 +1169,8 @@ pub fn build_microvm(
     event_manager
         .add_subscriber(vmm.clone())
         .map_err(StartMicrovmError::RegisterEvent)?;
+
+    info!("Builder succeeded");
 
     Ok(vmm)
 }
@@ -1269,6 +1317,8 @@ fn load_external_kernel(
     } else {
         None
     };
+
+    debug!("load_external_kernel succeedded");
 
     Ok((entry_addr, initrd_config, external_kernel.cmdline.clone()))
 }

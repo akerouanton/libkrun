@@ -2504,6 +2504,8 @@ pub extern "C" fn krun_start_enter(ctx_id: u32) -> i32 {
     #[cfg(feature = "nitro")]
     return krun_start_enter_nitro(ctx_id);
 
+    info!("Creating EventManager");
+
     let mut event_manager = match EventManager::new() {
         Ok(em) => em,
         Err(e) => {
@@ -2524,14 +2526,16 @@ pub extern "C" fn krun_start_enter(ctx_id: u32) -> i32 {
     {
         if let Some(ref krunfw) = ctx_cfg.krunfw {
             if let Err(err) = unsafe { load_krunfw_payload(krunfw, &mut ctx_cfg.vmr) } {
-                eprintln!("Can't load libkrunfw symbols: {err}");
+                info!("Can't load libkrunfw symbols: {err}");
                 return -libc::ENOENT;
             }
         } else {
-            eprintln!("Couldn't find or load {KRUNFW_NAME}");
+            info!("Couldn't find or load {KRUNFW_NAME}");
             return -libc::ENOENT;
         }
     }
+
+    info!("Adding block devices");
 
     #[cfg(feature = "blk")]
     for block_cfg in ctx_cfg.get_block_cfg() {
@@ -2571,9 +2575,14 @@ pub extern "C" fn krun_start_enter(ctx_id: u32) -> i32 {
         epilog: Some(format!(" -- {}", ctx_cfg.get_args())),
     };
 
-    if ctx_cfg.vmr.set_kernel_cmdline(kernel_cmdline).is_err() {
+    info!("Setting kernel cmdline");
+
+    if let Some(e) = ctx_cfg.vmr.set_kernel_cmdline(kernel_cmdline).err() {
+        error!("Error setting kernel cmdline: {e:?}");
         return -libc::EINVAL;
     }
+
+    info!("Adding network devices");
 
     #[cfg(feature = "net")]
     {
@@ -2590,6 +2599,8 @@ pub extern "C" fn krun_start_enter(ctx_id: u32) -> i32 {
             create_virtio_net(&mut ctx_cfg, backend, mac, NET_COMPAT_FEATURES, false);
         }
     }
+
+    info!("Adding vsock device");
 
     #[allow(unused_assignments)]
     let mut vsock_set = false;
@@ -2614,6 +2625,8 @@ pub extern "C" fn krun_start_enter(ctx_id: u32) -> i32 {
         vsock_config.enable_tsi = true;
         vsock_set = true;
     }
+
+    info!("Adding unix ipc port map");
 
     if let Some(ref map) = ctx_cfg.unix_ipc_port_map {
         vsock_config.unix_ipc_port_map = Some(map.clone());
@@ -2643,9 +2656,13 @@ pub extern "C" fn krun_start_enter(ctx_id: u32) -> i32 {
     #[cfg(feature = "snd")]
     ctx_cfg.vmr.set_snd_device(ctx_cfg.enable_snd);
 
+    info!("Adding console output");
+
     if let Some(console_output) = ctx_cfg.console_output {
         ctx_cfg.vmr.set_console_output(console_output);
     }
+
+    info!("Setting gid");
 
     if let Some(gid) = ctx_cfg.vmm_gid {
         if unsafe { libc::setgid(gid) } != 0 {
@@ -2654,12 +2671,16 @@ pub extern "C" fn krun_start_enter(ctx_id: u32) -> i32 {
         }
     }
 
+    info!("Setting uid");
+
     if let Some(uid) = ctx_cfg.vmm_uid {
         if unsafe { libc::setuid(uid) } != 0 {
             error!("Failed to set uid {uid}");
             return -std::io::Error::last_os_error().raw_os_error().unwrap();
         }
     }
+
+    info!("Creating unbounded channel");
 
     let (sender, _receiver) = unbounded();
 
@@ -2676,6 +2697,8 @@ pub extern "C" fn krun_start_enter(ctx_id: u32) -> i32 {
         }
     };
 
+    info!("Starting worker threads");
+
     #[cfg(target_os = "macos")]
     if ctx_cfg.gpu_virgl_flags.is_some() {
         vmm::worker::start_worker_thread(_vmm.clone(), _receiver).unwrap();
@@ -2688,6 +2711,8 @@ pub extern "C" fn krun_start_enter(ctx_id: u32) -> i32 {
 
     #[cfg(any(feature = "amd-sev", feature = "tdx"))]
     vmm::worker::start_worker_thread(_vmm.clone(), _receiver.clone()).unwrap();
+
+    info!("Starting EventManager loop");
 
     loop {
         match event_manager.run() {
